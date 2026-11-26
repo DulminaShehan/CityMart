@@ -101,6 +101,40 @@ export async function signIn({ email, password }) {
 }
 
 /**
+ * GoogleAuthProvider helper for Expo React Native
+ * Adheres to Firebase Modular API: GoogleAuthProvider.credential(idToken, accessToken)
+ */
+export const GoogleAuthProvider = {
+  PROVIDER_ID: 'google.com',
+  credential: (idToken, accessToken = null) => {
+    if (!idToken) {
+      throw new Error('GoogleAuthProvider.credential requires a valid Google ID token.');
+    }
+    return {
+      providerId: 'google.com',
+      idToken: idToken,
+      accessToken: accessToken,
+    };
+  },
+};
+
+/**
+ * Signs in to Firebase Authentication with a social/OAuth credential
+ * Adheres to Firebase Modular API: signInWithCredential(auth, credential)
+ */
+export async function signInWithCredential(authOrNull, credential) {
+  if (!credential || !credential.providerId) {
+    throw new Error('Invalid credential provided to signInWithCredential.');
+  }
+
+  return await signInWithSocialCredential({
+    providerId: credential.providerId,
+    idToken: credential.idToken,
+    accessToken: credential.accessToken,
+  });
+}
+
+/**
  * Signs in or creates a customer using Social Identity Provider credential (Google, Apple, Facebook)
  * Using Firebase Identity Toolkit signInWithIdp
  */
