@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        // Users can only read and write their own profile
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['fullName', 'email', 'role']) && newData.child('role').val() != 'admin'"
+      }
+    },
+    "shops": {
+      // Anyone can read shops that have been approved by admin (for marketplace listings)
+      // Shop owners can read their own shop regardless of status
+      ".read": "auth != null",
+      "$shopId": {
+        // Only the shop owner can write/create their shop application
+        // BUT they cannot set or change status to 'approved'
+        ".write": "auth != null && (!data.exists() || data.child('ownerId').val() === auth.uid)",
+        ".validate": "newData.hasChildren(['ownerId', 'shopName', 'status']) && (data.exists() || newData.child('status').val() === 'pending') && (newData.child('status').val() != 'approved' || data.child('status').val() === 'approved')"
+      }
+    }
+  }
+}

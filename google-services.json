@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "997601669962",
+    "firebase_url": "https://citymart-69b52-default-rtdb.firebaseio.com",
+    "project_id": "citymart-69b52",
+    "storage_bucket": "citymart-69b52.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:997601669962:android:c6f16c79614df49ca7c7b3",
+        "android_client_info": {
+          "package_name": "com.citymart.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCepwBZ2z5XudzesQalhe6i6UYIU2X2X-A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

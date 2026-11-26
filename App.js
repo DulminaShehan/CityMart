@@ -1,61 +1,58 @@
 import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { SafeAreaView, StyleSheet, View } from 'react-native';
 import LoginScreen from './src/screens/auth/LoginScreen';
+import RegisterScreen from './src/screens/auth/RegisterScreen';
+import CustomerHomeScreen from './src/screens/home/CustomerHomeScreen';
 import ShopRegistrationNavigator from './src/screens/vendor/ShopRegistrationNavigator';
 import colors from './src/theme/colors';
 
 export default function App() {
-  // 'login' | 'shop_registration'
-  const [currentModule, setCurrentModule] = useState('shop_registration');
+  // 'login' | 'register' | 'shop_registration' | 'customer_home'
+  const [currentScreen, setCurrentScreen] = useState('login');
+  const [currentUser, setCurrentUser] = useState(null);
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" backgroundColor="#F8FAFC" />
 
-      {/* Global Module Quick Switcher (Top Navigation Bar) */}
-      <View style={styles.moduleSwitcherBar}>
-        <TouchableOpacity
-          onPress={() => setCurrentModule('login')}
-          style={[
-            styles.switcherTab,
-            currentModule === 'login' && styles.switcherTabActive,
-          ]}
-        >
-          <Text
-            style={[
-              styles.switcherText,
-              currentModule === 'login' && styles.switcherTextActive,
-            ]}
-          >
-            Customer Login
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setCurrentModule('shop_registration')}
-          style={[
-            styles.switcherTab,
-            currentModule === 'shop_registration' && styles.switcherTabActive,
-          ]}
-        >
-          <Text
-            style={[
-              styles.switcherText,
-              currentModule === 'shop_registration' && styles.switcherTextActive,
-            ]}
-          >
-            🏪 Shop Owner Registration
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Content Rendering */}
+      {/* Screen Routing (Top Header Nav Bar Removed for Clean Professional UI) */}
       <View style={styles.content}>
-        {currentModule === 'login' ? (
-          <LoginScreen onNavigateToVendorReg={() => setCurrentModule('shop_registration')} />
-        ) : (
-          <ShopRegistrationNavigator onBackToLogin={() => setCurrentModule('login')} />
+        {currentScreen === 'login' && (
+          <LoginScreen
+            onNavigateToVendorReg={() => setCurrentScreen('shop_registration')}
+            onNavigateToRegister={() => setCurrentScreen('register')}
+            onLoginSuccess={(user) => {
+              setCurrentUser(user);
+              setCurrentScreen('customer_home');
+            }}
+          />
+        )}
+
+        {currentScreen === 'register' && (
+          <RegisterScreen
+            onBackToLogin={() => setCurrentScreen('login')}
+            onRegisterSuccess={(user) => {
+              setCurrentUser(user);
+              setCurrentScreen('customer_home');
+            }}
+          />
+        )}
+
+        {currentScreen === 'shop_registration' && (
+          <ShopRegistrationNavigator
+            onBackToLogin={() => setCurrentScreen('login')}
+          />
+        )}
+
+        {currentScreen === 'customer_home' && (
+          <CustomerHomeScreen
+            user={currentUser}
+            onSignOut={() => {
+              setCurrentUser(null);
+              setCurrentScreen('login');
+            }}
+          />
         )}
       </View>
     </SafeAreaView>
@@ -66,36 +63,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-  },
-  moduleSwitcherBar: {
-    flexDirection: 'row',
-    backgroundColor: colors.white,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: 8,
-  },
-  switcherTab: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.background,
-  },
-  switcherTabActive: {
-    backgroundColor: colors.primaryLight,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  switcherText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  switcherTextActive: {
-    color: colors.primary,
-    fontWeight: '700',
   },
   content: {
     flex: 1,

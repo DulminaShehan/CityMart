@@ -72,6 +72,8 @@ export default function CityIcon({ name, size = 18, color = '#64748B', style }) 
         return '✉';
       case 'lock':
         return '🔒';
+      case 'user':
+        return '👤';
       case 'eye':
         return '👁';
       case 'eye-off':

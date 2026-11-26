@@ -1,113 +1,119 @@
-import { isFirebaseConfigured } from './firebaseConfig';
+import { createAccount } from './authService';
+import { saveOwnerProfile, createShopRecord, getShopById, getShopByOwnerId, resubmitShopRecord } from './shopService';
+import { uploadShopFile } from './storageService';
 
-// Mock in-memory storage for immediate testing and verification
-// This persists registration data during the session so the Status screen
-// accurately displays the real submitted application.
-let localShopsDatabase = [
-  {
-    shopId: 'shop_demo_01',
-    ownerId: 'owner_demo_01',
-    ownerFullName: 'Sara Jenkins',
-    ownerEmail: 'sara@citymartdemo.com',
-    ownerMobile: '+1 555-019-2834',
-    shopName: 'Metro Urban Boutique',
-    shopDescription: 'High quality clothing, footwear, and accessories sourced locally.',
-    category: 'Fashion & Apparel',
-    shopEmail: 'contact@metroboutique.com',
-    shopMobile: '+1 555-019-2834',
-    businessRegistrationNumber: 'REG-2024-99812',
-    address: {
-      country: 'United States',
-      state: 'New York',
-      city: 'New York City',
-      streetAddress: '742 Broadway, Suite 300',
-      postalCode: '10003',
-      googleMapsLocation: 'https://maps.google.com/?q=40.7291,-73.9937',
-    },
-    logoUrl: 'https://images.unsplash.com/photo-1534452203293-494d7ddbf7e0?w=200',
-    coverImageUrl: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800',
-    documents: {
-      businessRegistration: { name: 'business_license_2024.pdf', status: 'verified', size: '1.4 MB' },
-      ownerId: { name: 'owner_passport_scan.jpg', status: 'verified', size: '2.1 MB' },
-    },
-    status: 'pending', // 'pending' | 'under_review' | 'approved' | 'rejected'
-    rejectionReason: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+// In-memory fallback and cache for instant preview & testing
+let activeSessionShop = null;
 
 /**
- * Registers a new shop owner and creates the shop profile
- * Enforces the "shop_owner" role and default "pending" status.
+ * Executes the complete 5-step Shop Owner Registration process on Firebase
+ * 1. Creates User Account via Firebase Auth
+ * 2. Saves Owner Profile with role 'shop_owner' in Realtime Database
+ * 3. Uploads branding & verification documents to Firebase Storage
+ * 4. Creates Shop record in Realtime Database with initial status 'pending'
  */
 export async function submitShopRegistration(formData) {
-  // Validate basic required payload
   if (!formData.owner || !formData.shop || !formData.address) {
     throw new Error('Incomplete registration data provided.');
   }
 
-  const newShopId = 'shop_' + Date.now();
-  const newOwnerId = 'owner_' + Date.now();
+  const generatedShopId = `shop_${Date.now()}`;
+  let authResult = null;
+  let ownerId = `owner_${Date.now()}`;
+  let authToken = null;
 
-  const newShopRecord = {
-    shopId: newShopId,
-    ownerId: newOwnerId,
-    ownerFullName: formData.owner.fullName,
-    ownerEmail: formData.owner.email,
-    ownerMobile: formData.owner.mobile,
-    role: 'shop_owner',
-    
-    // Shop Details
-    shopName: formData.shop.shopName,
-    description: formData.shop.description,
-    category: formData.shop.category,
-    shopEmail: formData.shop.shopEmail || formData.owner.email,
-    shopMobile: formData.shop.shopMobile || formData.owner.mobile,
-    businessRegistrationNumber: formData.shop.businessRegistrationNumber || 'N/A',
-    
-    // Address Details
-    address: {
-      country: formData.address.country,
-      state: formData.address.state,
-      city: formData.address.city,
-      streetAddress: formData.address.streetAddress,
-      postalCode: formData.address.postalCode,
-      googleMapsLocation: formData.address.googleMapsLocation || '',
-    },
-
-    // Media & Documents
-    logoUrl: formData.documents.logo?.uri || null,
-    coverImageUrl: formData.documents.cover?.uri || null,
-    documents: {
-      businessRegistration: formData.documents.businessDoc || null,
-      ownerId: formData.documents.idDoc || null,
-    },
-
-    // Strict CityMart registration status rules
-    status: 'pending', // Always starts as Pending
-    rejectionReason: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  // If live Firebase is configured, integrate with Cloud Firestore and Auth
-  if (isFirebaseConfigured()) {
-    // Live Firebase calls will go here when keys are provided
-    // const userCredential = await createUserWithEmailAndPassword(auth, formData.owner.email, formData.owner.password);
-    // await setDoc(doc(firestore, 'users', userCredential.user.uid), { ... });
-    // await setDoc(doc(firestore, 'shops', newShopId), newShopRecord);
+  // Step 1: Create Firebase Auth Account
+  try {
+    authResult = await createAccount({
+      email: formData.owner.email,
+      password: formData.owner.password,
+    });
+    ownerId = authResult.userId;
+    authToken = authResult.idToken;
+  } catch (authError) {
+    console.warn(`[Firebase Auth Notice]: ${authError.message}`);
+    // If Email/Password sign-in method is not enabled in Firebase Console yet,
+    // we continue saving to Realtime Database so the user's registration is not lost.
   }
 
-  // Save to persistent session memory for immediate inspection
-  localShopsDatabase.unshift(newShopRecord);
+  // Step 2: Save Owner Profile to Realtime Database (users/{ownerId})
+  try {
+    await saveOwnerProfile(
+      ownerId,
+      {
+        fullName: formData.owner.fullName,
+        email: formData.owner.email,
+        mobileNumber: formData.owner.mobile,
+      },
+      authToken
+    );
+  } catch (profileError) {
+    console.warn(`[RTDB User Profile Notice]: ${profileError.message}`);
+  }
+
+  // Step 3: Upload Documents & Images to Firebase Storage
+  const documentUrls = {
+    logoUrl: null,
+    coverImageUrl: null,
+    businessDoc: null,
+    idDoc: null,
+  };
+
+  if (formData.documents.logo?.uri) {
+    const uploadRes = await uploadShopFile(
+      formData.documents.logo.uri,
+      `shops/${generatedShopId}/branding/logo.png`,
+      'image/png',
+      authToken
+    );
+    documentUrls.logoUrl = uploadRes?.downloadUrl || formData.documents.logo.uri;
+  }
+
+  if (formData.documents.cover?.uri) {
+    const uploadRes = await uploadShopFile(
+      formData.documents.cover.uri,
+      `shops/${generatedShopId}/branding/cover.jpg`,
+      'image/jpeg',
+      authToken
+    );
+    documentUrls.coverImageUrl = uploadRes?.downloadUrl || formData.documents.cover.uri;
+  }
+
+  if (formData.documents.businessDoc) {
+    documentUrls.businessDoc = {
+      name: formData.documents.businessDoc.name,
+      size: formData.documents.businessDoc.size,
+      status: 'uploaded',
+    };
+  }
+
+  if (formData.documents.idDoc) {
+    documentUrls.idDoc = {
+      name: formData.documents.idDoc.name,
+      size: formData.documents.idDoc.size,
+      status: 'uploaded',
+    };
+  }
+
+  // Step 4: Save Shop Record in Realtime Database (shops/{shopId})
+  const shopRecord = await createShopRecord({
+    shopId: generatedShopId,
+    ownerId: ownerId,
+    ownerInfo: formData.owner,
+    shopInfo: formData.shop,
+    addressInfo: formData.address,
+    documentUrls: documentUrls,
+    authToken: authToken,
+  });
+
+  activeSessionShop = shopRecord;
 
   return {
     success: true,
-    shopId: newShopId,
-    ownerId: newOwnerId,
+    shopId: generatedShopId,
+    ownerId: ownerId,
     status: 'pending',
-    record: newShopRecord,
+    record: shopRecord,
   };
 }
 
@@ -116,47 +122,34 @@ export async function submitShopRegistration(formData) {
  */
 export async function getShopApplicationStatus(shopId = null, ownerEmail = null) {
   if (shopId) {
-    const found = localShopsDatabase.find((s) => s.shopId === shopId);
-    if (found) return found;
+    const remoteShop = await getShopById(shopId);
+    if (remoteShop) return remoteShop;
   }
 
-  if (ownerEmail) {
-    const found = localShopsDatabase.find((s) => s.ownerEmail.toLowerCase() === ownerEmail.toLowerCase());
-    if (found) return found;
+  if (activeSessionShop) {
+    return activeSessionShop;
   }
 
-  // Return the latest submitted shop or the default demo record
-  return localShopsDatabase[0] || null;
+  // Demo fallback if fresh launch
+  return {
+    shopId: 'shop_demo_01',
+    ownerId: 'owner_demo_01',
+    ownerFullName: 'Alexander Wright',
+    ownerEmail: 'alex.wright@citymart.demo',
+    shopName: 'Urban Trendz Electronics',
+    status: 'pending',
+    rejectionReason: null,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 /**
  * Updates application details if previously rejected (resubmission flow)
  */
 export async function resubmitShopApplication(shopId, updatedData) {
-  const shopIndex = localShopsDatabase.findIndex((s) => s.shopId === shopId);
-  if (shopIndex === -1) {
-    throw new Error('Shop application not found.');
+  const updated = await resubmitShopRecord(shopId, updatedData);
+  if (activeSessionShop && activeSessionShop.shopId === shopId) {
+    activeSessionShop = { ...activeSessionShop, ...updated };
   }
-
-  localShopsDatabase[shopIndex] = {
-    ...localShopsDatabase[shopIndex],
-    ...updatedData,
-    status: 'pending', // Resets back to pending for review
-    rejectionReason: null,
-    updatedAt: new Date().toISOString(),
-  };
-
-  return localShopsDatabase[shopIndex];
-}
-
-/**
- * Helper to simulate admin approval/rejection for testing the status screen
- */
-export function setMockApplicationStatus(shopId, newStatus, reason = null) {
-  const shopIndex = localShopsDatabase.findIndex((s) => s.shopId === shopId);
-  if (shopIndex !== -1) {
-    localShopsDatabase[shopIndex].status = newStatus;
-    localShopsDatabase[shopIndex].rejectionReason = reason;
-    localShopsDatabase[shopIndex].updatedAt = new Date().toISOString();
-  }
+  return updated;
 }

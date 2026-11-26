@@ -11,19 +11,33 @@ import {
   Alert,
   Dimensions,
   SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
 import colors from '../../theme/colors';
 import CustomInput from '../../components/CustomInput';
 import PrimaryButton from '../../components/PrimaryButton';
 import CityIcon from '../../components/CityIcon';
+import { signIn, sendPasswordReset } from '../../services/authService';
+import {
+  initiateGoogleSignIn,
+  initiateFacebookSignIn,
+  initiateAppleSignIn,
+} from '../../services/socialAuthService';
 
 const { width } = Dimensions.get('window');
 
-export default function LoginScreen({ navigation, onNavigateToVendorReg }) {
+export default function LoginScreen({
+  navigation,
+  onNavigateToVendorReg,
+  onNavigateToRegister,
+  onLoginSuccess,
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   // Email format validator
   const validateEmail = (val) => {
@@ -57,56 +71,134 @@ export default function LoginScreen({ navigation, onNavigateToVendorReg }) {
 
     setIsLoading(true);
     try {
-      // Future integration with Firebase Authentication
-      // e.g., await signInWithEmailAndPassword(auth, email, password)
-      setTimeout(() => {
-        setIsLoading(false);
+      const user = await signIn({ email, password });
+      setIsLoading(false);
+
+      if (onLoginSuccess) {
+        onLoginSuccess(user);
+      } else {
         Alert.alert(
-          'Login Attempt',
-          `Signing in as ${email.trim()}.\n\nFirebase authentication integration ready. Once credentials are provided, this connects to your live Firebase project.`,
-          [{ text: 'OK' }]
+          'Login Successful! 🎉',
+          `Welcome back, ${user.profile?.fullName || email}!\nRole: ${user.profile?.role || 'Customer'}`
         );
-      }, 900);
+      }
     } catch (error) {
       setIsLoading(false);
-      Alert.alert('Login Failed', error.message || 'An error occurred during login.');
+      Alert.alert(
+        'Authentication Notice',
+        error.message || 'Unable to sign in. Please verify your credentials.'
+      );
     }
   };
 
-  const handleForgotPassword = () => {
+  const handleForgotPassword = async () => {
     if (!email.trim() || !validateEmail(email)) {
       Alert.alert(
-        'Forgot Password',
+        'Email Required',
         'Please enter your registered email address above first to receive password reset instructions.'
       );
       return;
     }
 
-    Alert.alert(
-      'Password Reset',
-      `Password reset link will be sent to ${email.trim()} once Firebase is configured.`,
-      [{ text: 'OK' }]
-    );
+    setIsResetting(true);
+    try {
+      await sendPasswordReset(email.trim());
+      setIsResetting(false);
+      Alert.alert(
+        'Password Reset Email Sent 📨',
+        `A password reset link has been dispatched to ${email.trim()}. Please check your inbox and spam folder.`
+      );
+    } catch (error) {
+      setIsResetting(false);
+      Alert.alert(
+        'Password Reset Notice',
+        error.message || 'Unable to send password reset email at this time.'
+      );
+    }
   };
 
-  const handleSocialLogin = (provider) => {
-    Alert.alert(
-      `${provider} Sign-In`,
-      `${provider} authentication will be enabled once OAuth credentials are configured.`,
-      [{ text: 'Got it' }]
-    );
+  const handleSocialLogin = async (provider) => {
+    try {
+      if (provider === 'Google') {
+        setIsGoogleLoading(true);
+        const result = await initiateGoogleSignIn((user) => {
+          if (onLoginSuccess) {
+            onLoginSuccess(user);
+          }
+        });
+        setIsGoogleLoading(false);
+
+        if (!result) return;
+
+        if (result.status === 'success') {
+          if (onLoginSuccess) {
+            onLoginSuccess(result.user);
+          } else {
+            Alert.alert(
+              'Google Sign-In Successful! 🎉',
+              `Welcome, ${result.user?.profile?.fullName || result.user?.email}!\nRole: ${result.user?.profile?.role || 'Customer'}`
+            );
+          }
+          return;
+        }
+
+        if (result.status === 'opened') {
+          Alert.alert(result.title || 'Google Sign-In', result.message || 'Opening Google sign-in...', [{ text: 'OK' }]);
+          return;
+        }
+
+        if (result.status === 'cancelled') {
+          // Gracefully dismissed by user - no intrusive error alert needed
+          return;
+        }
+
+        if (result.status === 'missing_config' || result.status === 'platform_notice') {
+          Alert.alert(result.title, result.instructions, [{ text: 'Understood' }]);
+          return;
+        }
+
+        if (result.status === 'notice') {
+          Alert.alert(result.title || 'Configuration Notice', result.message, [{ text: 'OK' }]);
+          return;
+        }
+
+        if (result.status === 'error') {
+          Alert.alert('Google Sign-In Notice', result.message || 'Authentication could not be completed.');
+          return;
+        }
+      } else if (provider === 'Facebook') {
+        const result = await initiateFacebookSignIn();
+        if (!result) return;
+        if (result.status === 'missing_config') {
+          Alert.alert(result.title, result.instructions, [{ text: 'Understood' }]);
+        } else if (result.status === 'opened') {
+          Alert.alert('Facebook Sign-In', result.message || 'Sign-in prompt opened.', [{ text: 'OK' }]);
+        } else if (result.status === 'error') {
+          Alert.alert('Facebook Error', result.message);
+        }
+      } else if (provider === 'Apple') {
+        const result = await initiateAppleSignIn();
+        if (!result) return;
+        if (result.status === 'platform_notice') {
+          Alert.alert(result.title, result.instructions, [{ text: 'Understood' }]);
+        }
+      }
+    } catch (err) {
+      setIsGoogleLoading(false);
+      Alert.alert(`${provider} Sign-In`, err.message || 'Social sign-in failed.');
+    }
   };
 
   const handleSignUpNavigation = () => {
-    if (navigation && navigation.navigate) {
+    if (onNavigateToRegister) {
+      onNavigateToRegister();
+    } else if (navigation && navigation.navigate) {
       navigation.navigate('Register');
-    } else {
-      Alert.alert('Sign Up', 'Navigating to registration screen...');
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -175,9 +267,12 @@ export default function LoginScreen({ navigation, onNavigateToVendorReg }) {
               <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={handleForgotPassword}
+                disabled={isResetting}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                <Text style={styles.forgotPasswordText}>
+                  {isResetting ? 'Sending...' : 'Forgot Password?'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -202,10 +297,17 @@ export default function LoginScreen({ navigation, onNavigateToVendorReg }) {
               <TouchableOpacity
                 style={styles.socialButton}
                 activeOpacity={0.8}
+                disabled={isGoogleLoading}
                 onPress={() => handleSocialLogin('Google')}
               >
-                <CityIcon name="google" size={18} color="#EA4335" />
-                <Text style={styles.socialButtonText}>Google</Text>
+                {isGoogleLoading ? (
+                  <ActivityIndicator size="small" color="#EA4335" />
+                ) : (
+                  <>
+                    <CityIcon name="google" size={18} color="#EA4335" />
+                    <Text style={styles.socialButtonText}>Google</Text>
+                  </>
+                )}
               </TouchableOpacity>
 
               {/* Apple */}
@@ -241,13 +343,15 @@ export default function LoginScreen({ navigation, onNavigateToVendorReg }) {
               </TouchableOpacity>
             </View>
 
-            {/* Shop Owner Registration Action */}
+            {/* Shop Owner Registration Callout Box at Bottom */}
             <TouchableOpacity
-              activeOpacity={0.8}
+              activeOpacity={0.85}
               onPress={onNavigateToVendorReg}
               style={styles.vendorActionBox}
             >
-              <Text style={styles.vendorActionIcon}>🏪</Text>
+              <View style={styles.vendorIconBadge}>
+                <Text style={styles.vendorActionIcon}>🏪</Text>
+              </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.vendorActionTitle}>Own a Store or Business?</Text>
                 <Text style={styles.vendorActionSub}>Register as a CityMart Shop Owner →</Text>
@@ -309,31 +413,30 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 22,
     paddingTop: 16,
-    paddingBottom: 0,
-    justifyContent: 'space-between',
+    paddingBottom: 24,
   },
   brandSection: {
     alignItems: 'center',
     marginBottom: 20,
   },
   logoContainer: {
-    width: 86,
-    height: 86,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 20,
     backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14,
+    shadowOpacity: 0.15,
     shadowRadius: 12,
-    elevation: 4,
-    marginBottom: 12,
+    elevation: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    marginBottom: 10,
   },
   logo: {
-    width: 72,
-    height: 72,
-    borderRadius: 18,
+    width: '100%',
+    height: '100%',
   },
   brandTitleRow: {
     flexDirection: 'row',
@@ -353,26 +456,27 @@ const styles = StyleSheet.create({
   },
   tagline: {
     fontSize: 13,
-    fontWeight: '500',
     color: colors.textSecondary,
-    marginTop: 3,
+    fontWeight: '500',
+    marginTop: 2,
     letterSpacing: 0.2,
   },
   formCard: {
     backgroundColor: colors.white,
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 24,
+    padding: 22,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-    marginBottom: 16,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   greetingTitle: {
     fontSize: 22,
     fontWeight: '700',
-    color: colors.text,
+    color: colors.textPrimary,
     marginBottom: 4,
   },
   greetingSubtitle: {
@@ -382,21 +486,21 @@ const styles = StyleSheet.create({
   },
   forgotPasswordRow: {
     alignItems: 'flex-end',
+    marginBottom: 16,
     marginTop: -4,
-    marginBottom: 20,
   },
   forgotPasswordText: {
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '600',
-    color: colors.primary,
   },
   loginButton: {
-    marginBottom: 18,
+    marginBottom: 20,
   },
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 14,
+    marginBottom: 16,
   },
   dividerLine: {
     flex: 1,
@@ -404,137 +508,149 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
   },
   dividerText: {
-    marginHorizontal: 12,
-    fontSize: 12,
+    paddingHorizontal: 12,
     color: colors.textSecondary,
+    fontSize: 12,
     fontWeight: '500',
   },
   socialRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 10,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   socialButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1.2,
-    borderColor: colors.border,
     backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   socialButtonText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: colors.text,
+    color: colors.textPrimary,
   },
   footerRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 4,
+    marginBottom: 16,
   },
   footerPrompt: {
-    fontSize: 14,
     color: colors.textSecondary,
+    fontSize: 13,
   },
   signUpLink: {
-    fontSize: 14,
-    fontWeight: '700',
     color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   vendorActionBox: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1.5,
+    borderColor: '#FCD34D',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     gap: 12,
+  },
+  vendorIconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#FEF3C7',
-    borderWidth: 1.2,
-    borderColor: '#F59E0B',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   vendorActionIcon: {
-    fontSize: 24,
+    fontSize: 18,
   },
   vendorActionTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: '#92400E',
   },
   vendorActionSub: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#B45309',
-    marginTop: 1,
+    color: '#D97706',
+    marginTop: 2,
   },
   decorativeFooter: {
-    position: 'relative',
-    height: 85,
-    marginHorizontal: -22,
-    marginTop: 10,
+    marginTop: 24,
+    alignItems: 'center',
     overflow: 'hidden',
-    justifyContent: 'flex-end',
+    position: 'relative',
+    height: 90,
   },
   skylineSilhouette: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'center',
-    gap: 5,
+    gap: 6,
     position: 'absolute',
     bottom: 22,
-    width: '100%',
-    opacity: 0.32,
+    zIndex: 1,
   },
   building: {
-    backgroundColor: colors.primary,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
+    backgroundColor: '#CBD5E1',
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
     alignItems: 'center',
-    paddingTop: 6,
-    gap: 4,
+    paddingTop: 4,
   },
   spire: {
-    width: 2,
-    height: 8,
-    backgroundColor: colors.primary,
     position: 'absolute',
-    top: -8,
+    top: -12,
+    width: 2,
+    height: 12,
+    backgroundColor: '#94A3B8',
   },
   windowRow: {
     flexDirection: 'row',
-    gap: 3,
+    gap: 4,
+    marginBottom: 4,
   },
   windowDot: {
-    width: 3.5,
-    height: 3.5,
-    backgroundColor: colors.accent,
+    width: 3,
+    height: 3,
+    backgroundColor: '#FFFFFF',
     borderRadius: 1,
   },
   waveLayerOrange: {
     position: 'absolute',
-    bottom: 0,
-    left: -15,
-    right: -15,
-    height: 26,
+    bottom: 8,
+    left: -20,
+    right: -20,
+    height: 24,
     backgroundColor: colors.accent,
-    borderTopLeftRadius: 36,
-    borderTopRightRadius: 44,
-    transform: [{ rotate: '-1.2deg' }],
+    borderTopLeftRadius: 60,
+    borderTopRightRadius: 80,
+    opacity: 0.9,
+    transform: [{ rotate: '-1.5deg' }],
   },
   waveLayerBlue: {
     position: 'absolute',
     bottom: -6,
-    left: -10,
-    right: -10,
+    left: -20,
+    right: -20,
     height: 24,
     backgroundColor: colors.primary,
-    borderTopLeftRadius: 50,
-    borderTopRightRadius: 30,
-    transform: [{ rotate: '1deg' }],
+    borderTopLeftRadius: 80,
+    borderTopRightRadius: 60,
   },
 });
